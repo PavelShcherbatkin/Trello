@@ -92,8 +92,8 @@ async def oauth(message: types.Message):
                     list_id.append(l['id'])
             list_id = list_id[0]
             
-            kb1 = InlineKeyboardButton('Посмотреть', callback_data='read')
-            kb2 = InlineKeyboardButton('Загрузить', callback_data='write')
+            kb1 = InlineKeyboardButton('Посмотреть текущие задачи', callback_data='read')
+            kb2 = InlineKeyboardButton('Загрузить новую задачу', callback_data='write')
             final_keyboard_lists = InlineKeyboardMarkup()
             final_keyboard_lists.add(kb1)
             final_keyboard_lists.add(kb2)
@@ -116,66 +116,81 @@ async def oauth(message: types.Message):
             @dp.callback_query_handler(lambda c: c.data == 'write')
             async def process_callback(call: types.CallbackQuery):
                 await dp.bot.answer_callback_query(call.id)
-                kb_date_yes = InlineKeyboardButton('Установить дату', callback_data='yes')
-                kb_date_no = InlineKeyboardButton('Не ставить дату', callback_data='no')
+                await message.answer('Введите имя задачи')
+                await Date.D1.set()
+            
+            @dp.message_handler(state=Date.D1)
+            async def process_callback(message: types.Message, state: FSMContext):
+                global task
+                task = message.text
+                kb_date_yes = InlineKeyboardButton('Установить дату', callback_data='date_yes')
+                kb_date_no = InlineKeyboardButton('Не ставить дату', callback_data='date_no')
                 date_keyboard = InlineKeyboardMarkup()
                 date_keyboard.add(kb_date_yes)
                 date_keyboard.add(kb_date_no)
                 await message.answer("Хотите установить дату:", reply_markup=date_keyboard)
+                await state.finish()
 
-                @dp.callback_query_handler(lambda c: c.data == 'no')
+                @dp.callback_query_handler(lambda c: c.data == 'date_no')
                 async def process_callback(call: types.CallbackQuery):
-                    url_cards = f'https://api.trello.com/1/cards'
                     await dp.bot.answer_callback_query(call.id)
-                    await message.answer('Введите имя задачи')
+                    button_yes = KeyboardButton('Да')
+                    button_no = KeyboardButton('Нет')
+                    greet_kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+                    greet_kb.add(button_yes)
+                    greet_kb.add(button_no)
+
+                    await message.answer(f'Хотите добавить карточку "{task}"?', reply_markup=greet_kb)
                     await Date.D3.set()
-                    
-                    @dp.message_handler(state=Date.D3)
-                    async def add_task(message: types.Message, state: FSMContext):
-                        global task
-                        task = message.text
-                        query = {
-                            'idList': list_id,
-                            'name': task
-                        }
-                        cards = oauth.post(url_cards, data=query)
-                    
-                        await message.answer(f'Карточка "{task}" добавлена')
-                        await state.finish()
                 
-                @dp.callback_query_handler(lambda c: c.data == 'yes')
+                @dp.callback_query_handler(lambda c: c.data == 'date_yes')
                 async def process_callback(call: types.CallbackQuery):
                     await message.answer("Please select a date: ", reply_markup=create_calendar())
 
-                @dp.callback_query_handler(calendar_callback.filter()) 
-                async def process_name(callback_query: CallbackQuery, callback_data: dict):
-                    global date
-                    selected, date = await process_calendar_selection(callback_query, callback_data)
-                    if selected:
-                        url_cards = f'https://api.trello.com/1/cards'
-                        await dp.bot.answer_callback_query(callback_query.id)
-                        await message.answer('Введите имя задачи')
-                        await Date.D1.set()
-                        
-                        @dp.message_handler(state=Date.D1)
-                        async def add_task(message: types.Message, state: FSMContext):
-                            global task
-                            task = message.text
+                    @dp.callback_query_handler(calendar_callback.filter()) 
+                    async def process_name(callback_query: CallbackQuery, callback_data: dict):
+                        global date
+                        selected, date = await process_calendar_selection(callback_query, callback_data)
+                        if selected:
+                            await dp.bot.answer_callback_query(callback_query.id)
                             await message.answer('Введите время в формате hour:minut:second')
                             await Date.D2.set()
+                            
+                            @dp.message_handler(state=Date.D2)
+                            async def add_task(message: types.Message, state: FSMContext):
+                                global time
+                                time = message.text
+                                button_yes = KeyboardButton('Да')
+                                button_no = KeyboardButton('Нет')
+                                greet_kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+                                greet_kb.add(button_yes)
+                                greet_kb.add(button_no)
 
-                        @dp.message_handler(state=Date.D2)
-                        async def add_task(message: types.Message, state: FSMContext):
-                            time = message.text
+                                await message.answer(f'Хотите добавить карточку "{task}"?', reply_markup=greet_kb)
+                                await Date.D3.set()
+
+                @dp.message_handler(state=Date.D3)
+                async def add_task(message: types.Message, state: FSMContext):
+                    if message.text == "Да":
+                        url_cards = f'https://api.trello.com/1/cards'
+                        if date:
                             query = {
                                 'idList': list_id,
                                 'name': task,
                                 'due': date.strftime("%Y-%m-%d") + ' ' + time
                             }
-                            cards = oauth.post(url_cards, data=query)
-                        
-                            await message.answer(f'Карточка "{task}" добавлена')
-                            await state.finish()
+                        else:
+                            query = {
+                                'idList': list_id,
+                                'name': task,
+                            }
+                        cards = oauth.post(url_cards, data=query)
+                    
+                        await message.answer(f'Карточка "{task}" добавлена')
+                        await state.finish()
+                    else:
+                        await message.answer(f'Хорошо, карточка "{task}" не будет добавлена')
+                        await state.finish() 
 
         await message.answer("Выберите список:", reply_markup=cards_keyboard_lists)
 
