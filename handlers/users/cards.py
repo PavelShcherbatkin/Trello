@@ -32,9 +32,17 @@ name_board = None
 board_id = None
 lists = None
 lists_list = None
+lists_name_id = None
 
 name_list = None
 list_id = None
+
+# новое
+cards_list = None
+cards_name_id = None
+
+id_cards = None
+
 
 task = None
 
@@ -83,6 +91,7 @@ async def process_callback(call: types.CallbackQuery):
     global board_id
     global lists
     global lists_list
+    global lists_name_id
     await dp.bot.answer_callback_query(call.id)
     name_board = call.data
     boards_id = []
@@ -98,6 +107,11 @@ async def process_callback(call: types.CallbackQuery):
     lists_list = []
     for l in lists:
         lists_list.append(l['name'])
+    # Словарь name_id lists
+    lists_name_id = {}
+    for l in lists:
+        lists_name_id[l['name']] = l['id']
+    # конец нового
     lists_keyboard = types.InlineKeyboardMarkup()
     for name in lists_list:
         bt_list = types.InlineKeyboardButton(name, callback_data=name)
@@ -119,10 +133,12 @@ async def process_callback(call: types.CallbackQuery):
     list_id = list_id[0]
     
     kb_action_1 = InlineKeyboardButton('Посмотреть текущие задачи', callback_data='read')
-    kb_action_2 = InlineKeyboardButton('Загрузить новую задачу', callback_data='write')
+    kb_action_2 = InlineKeyboardButton('Переместить карточку', callback_data='cd')
+    kb_action_3 = InlineKeyboardButton('Загрузить новую задачу', callback_data='write')
     action_keyboard = InlineKeyboardMarkup()
     action_keyboard.add(kb_action_1)
     action_keyboard.add(kb_action_2)
+    action_keyboard.add(kb_action_3)
 
     await dp.bot.send_message(call.from_user.id, "Что вы хотите сделать?", reply_markup=action_keyboard)
 
@@ -141,6 +157,57 @@ async def process_callback(call: types.CallbackQuery):
     text = f'{text_cards[0]}\n' + ';\n'.join(text_cards[1:]) + '.'
     await dp.bot.send_message(call.from_user.id, text)
 
+
+# (тыкнули на cd)
+@dp.callback_query_handler(lambda c: c.data == 'cd')
+async def process_callback(call: types.CallbackQuery):
+    global cards_list
+    global cards_name_id
+    cards_list = []
+    await dp.bot.answer_callback_query(call.id)
+    url_cards = f'https://api.trello.com/1/lists/{list_id}/cards'
+    cards = oauth.get(url_cards).json()
+    text = [
+        f'Ваши карточки на доске "{name_board}" в списке "{name_list}":',
+        'Выберите карточку которую хотите изменить'
+        ]
+    for card in cards:
+        cards_list.append(card['name'])
+    keyboard_cards = types.InlineKeyboardMarkup()
+    cards_name_id = {}
+    for card in cards:
+        cards_name_id[card['name']] = card['id']
+    for name in cards_list:
+        bt_cards = InlineKeyboardButton(name, callback_data=cards_name_id[name])
+        keyboard_cards.add(bt_cards)
+    await dp.bot.send_message(call.from_user.id, '\n'.join(text), reply_markup=keyboard_cards)
+
+
+@dp.callback_query_handler(lambda c: c.data in cards_name_id.values())
+async def process_callback(call: types.CallbackQuery):
+    global lists_name_id
+    global id_cards
+    await dp.bot.answer_callback_query(call.id)
+    id_cards = call.data
+    lists_keyboard = types.InlineKeyboardMarkup()
+    for name in lists_list:
+        bt_list = types.InlineKeyboardButton(name, callback_data=lists_name_id[name])
+        lists_keyboard.add(bt_list)
+    await dp.bot.send_message(call.from_user.id, "Выберите список куда переместить карточку:", reply_markup=lists_keyboard)
+
+
+@dp.callback_query_handler(lambda c: c.data in lists_name_id.values())
+async def process_callback(call: types.CallbackQuery):
+    global id_cards
+    cd_url = f'https://api.trello.com/1/cards/{id_cards}'
+    await dp.bot.answer_callback_query(call.id)
+    id_list = call.data
+    query = {
+                'idList': id_list,
+            }
+    cd = oauth.put(cd_url, data=query)
+    await dp.bot.send_message(call.from_user.id, f"Карточка перемещена")
+    
 
 # (тыкнули на read)
 @dp.callback_query_handler(lambda c: c.data == 'write')
